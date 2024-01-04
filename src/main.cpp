@@ -1,44 +1,15 @@
+// ***** THIS IS A CUSTOMIZED VERSION OF arduino-as-isp, ONLY USE FOR THAT HARDWARE *****
+//
+//  - Reset output polarity inverted for 2N7000 on reset line
+
+#include "SPI.h"
 #include <Arduino.h>
 
-// ArduinoISP
-// Copyright (c) 2008-2011 Randall Bohn
-// If you require a license, see
-// https://opensource.org/licenses/bsd-license.php
-//
-// This sketch turns the Arduino into a AVRISP using the following Arduino pins:
-//
-// Pin 10 is used to reset the target microcontroller.
-//
-// By default, the hardware SPI pins MISO, MOSI and SCK are used to communicate
-// with the target. On all Arduinos, these pins can be found
-// on the ICSP/SPI header:
-//
-//               MISO °. . 5V (!) Avoid this pin on Due, Zero...
-//               SCK   . . MOSI
-//                     . . GND
-//
-// On some Arduinos (Uno,...), pins MOSI, MISO and SCK are the same pins as
-// digital pin 11, 12 and 13, respectively. That is why many tutorials instruct
-// you to hook up the target to these pins. If you find this wiring more
-// practical, have a define USE_OLD_STYLE_WIRING. This will work even when not
-// using an Uno. (On an Uno this is not needed).
-//
-// Alternatively you can use any other digital pin by configuring
-// software ('BitBanged') SPI and having appropriate defines for PIN_MOSI,
-// PIN_MISO and PIN_SCK.
-//
-// IMPORTANT: When using an Arduino that is not 5V tolerant (Due, Zero, ...) as
-// the programmer, make sure to not expose any of the programmer's pins to 5V.
-// A simple way to accomplish this is to power the complete system (programmer
-// and target) at 3V3.
-//
-// Put an LED (with resistor) on the following pins:
-// 9: Heartbeat   - shows the programmer is running
-// 8: Error       - Lights up on error goes wrong (red makes sense)
-// 7: Programming - In communication with the slave
-//
+#define RESET 10
+#define LED_HB 9
+#define LED_ERR 8
+#define LED_PMODE 7
 
-#include "Arduino.h"
 #undef SERIAL
 
 void avrisp();
@@ -59,87 +30,19 @@ void avrisp();
 // Currently only for AVR, for other architectures (Due, Zero,...), hardware SPI
 // is probably too fast anyway.
 
-#if defined(ARDUINO_ARCH_AVR)
-
 #if SPI_CLOCK > (F_CPU / 128)
 #define USE_HARDWARE_SPI
 #endif
 
-#endif
-
-// Configure which pins to use:
-
-// The standard pin configuration.
-#ifndef ARDUINO_HOODLOADER2
-
-#define RESET 10 // Use pin 10 to reset the target rather than SS
-#define LED_HB 9
-#define LED_ERR 8
-#define LED_PMODE 7
-
-// Uncomment following line to use the old Uno style wiring
-// (using pin 11, 12 and 13 instead of the SPI header) on Leonardo, Due...
-
-// #define USE_OLD_STYLE_WIRING
-
-#ifdef USE_OLD_STYLE_WIRING
-
-#define PIN_MOSI 11
-#define PIN_MISO 12
-#define PIN_SCK 13
-
-#endif
-
-// HOODLOADER2 means running sketches on the ATmega16U2 serial converter chips
-// on Uno or Mega boards. We must use pins that are broken out:
-#else
-
-#define RESET 4
-#define LED_HB 7
-#define LED_ERR 6
-#define LED_PMODE 5
-
-#endif
-
-// By default, use hardware SPI pins:
-#ifndef PIN_MOSI
+// Configure which pins to use,
+// Use hardware SPI pins:
 #define PIN_MOSI MOSI
-#endif
-
-#ifndef PIN_MISO
 #define PIN_MISO MISO
-#endif
-
-#ifndef PIN_SCK
 #define PIN_SCK SCK
-#endif
 
-// Force bitbanged SPI if not using the hardware SPI pins:
-#if (PIN_MISO != MISO) || (PIN_MOSI != MOSI) || (PIN_SCK != SCK)
-#undef USE_HARDWARE_SPI
-#endif
-
-// Configure the serial port to use.
-//
-// Prefer the USB virtual serial port (aka. native USB port), if the Arduino has
-// one:
-//   - it does not autoreset (except for the magic baud rate of 1200).
-//   - it is more reliable because of USB handshaking.
-//
-// Leonardo and similar have an USB virtual serial port: 'Serial'.
-// Due and Zero have an USB virtual serial port: 'SerialUSB'.
-//
-// On the Due and Zero, 'Serial' can be used too, provided you disable
-// autoreset. To use 'Serial': #define SERIAL Serial
-
-#ifdef SERIAL_PORT_USBVIRTUAL
-#define SERIAL SERIAL_PORT_USBVIRTUAL
-#else
 #define SERIAL Serial
-#endif
 
 // Configure the baud rate:
-
 #define BAUDRATE 19200
 // #define BAUDRATE	115200
 // #define BAUDRATE	1000000
@@ -157,71 +60,6 @@ void avrisp();
 #define CRC_EOP 0x20 // ok it is a space...
 
 void pulse(int pin, int times);
-
-#ifdef USE_HARDWARE_SPI
-#include "SPI.h"
-#else
-
-#define SPI_MODE0 0x00
-
-#if !defined(ARDUINO_API_VERSION) ||                                           \
-    ARDUINO_API_VERSION !=                                                     \
-        10001 // A SPISettings class is declared by ArduinoCore-API 1.0.1
-class SPISettings {
-public:
-  // clock is in Hz
-  SPISettings(uint32_t clock, uint8_t bitOrder, uint8_t dataMode)
-      : clockFreq(clock) {
-    (void)bitOrder;
-    (void)dataMode;
-  };
-
-  uint32_t getClockFreq() const { return clockFreq; }
-
-private:
-  uint32_t clockFreq;
-};
-#endif        // !defined(ARDUINO_API_VERSION)
-
-class BitBangedSPI {
-public:
-  void begin() {
-    digitalWrite(PIN_SCK, LOW);
-    digitalWrite(PIN_MOSI, LOW);
-    pinMode(PIN_SCK, OUTPUT);
-    pinMode(PIN_MOSI, OUTPUT);
-    pinMode(PIN_MISO, INPUT);
-  }
-
-  void beginTransaction(SPISettings settings) {
-    pulseWidth =
-        (500000 + settings.getClockFreq() - 1) / settings.getClockFreq();
-    if (pulseWidth == 0) {
-      pulseWidth = 1;
-    }
-  }
-
-  void end() {}
-
-  uint8_t transfer(uint8_t b) {
-    for (unsigned int i = 0; i < 8; ++i) {
-      digitalWrite(PIN_MOSI, (b & 0x80) ? HIGH : LOW);
-      digitalWrite(PIN_SCK, HIGH);
-      delayMicroseconds(pulseWidth);
-      b = (b << 1) | digitalRead(PIN_MISO);
-      digitalWrite(PIN_SCK, LOW); // slow pulse
-      delayMicroseconds(pulseWidth);
-    }
-    return b;
-  }
-
-private:
-  unsigned long pulseWidth; // in microseconds
-};
-
-static BitBangedSPI SPI;
-
-#endif
 
 void setup() {
   SERIAL.begin(BAUDRATE);
