@@ -15,8 +15,8 @@ void pulse(uint8_t pin, uint8_t times);
 int16_t ISPError = 0;
 bool pgm_mode = false;
 
-uint16_t here;       // address for reading and writing, set by 'U' command
-uint8_t buffer[256]; // global block storage
+uint16_t bufferIndex; // address for reading and writing, set by 'U' command
+uint8_t buffer[256];  // global block storage
 
 // Heartbeat so you can tell the software is running.
 uint8_t heartbeatValue = 128;
@@ -33,10 +33,6 @@ void setup() {
   digitalWrite(TARGET_PWR, HIGH);
   pinMode(TARGET_PWR, OUTPUT);
 
-  /*   digitalWrite(TARGET_PWR, LOW);
-    delay(1000);
-    digitalWrite(TARGET_PWR, HIGH); */
-
   pinMode(LED_PMODE, OUTPUT);
   pulse(LED_PMODE, 2);
 
@@ -48,22 +44,29 @@ void setup() {
 }
 
 void loop(void) {
+  /*
+    // Is pgm_mode active?
+    if (pgm_mode) {
+      digitalWrite(LED_PMODE, HIGH);
+    } else {
+      digitalWrite(LED_PMODE, LOW);
+    }
 
-  // is pgm_mode active?
-  if (pgm_mode) {
-    digitalWrite(LED_PMODE, HIGH);
-  } else {
-    digitalWrite(LED_PMODE, LOW);
-  }
+    // Is there an error?
+    if (ISPError) {
+      digitalWrite(LED_ERR, HIGH);
+    } else {
+      digitalWrite(LED_ERR, LOW);
+    }
+   */
 
-  // is there an error?
-  if (ISPError) {
-    digitalWrite(LED_ERR, HIGH);
-  } else {
-    digitalWrite(LED_ERR, LOW);
-  }
+  // Is pgm_mode active?
+  digitalWrite(LED_PMODE, pgm_mode);
 
-  // light the heartbeat LED
+  // Is there an error?
+  digitalWrite(LED_ERR, ISPError);
+
+  // Light the heartbeat LED
   heartbeat();
 
   if (Serial.available()) {
@@ -213,7 +216,7 @@ void start_pmode() {
 
   // SPI.begin() will configure SS as output, so SPI master mode is selected.
   // We have defined RESET as pin 10, which for many Arduinos is not the SS pin.
-  // So we have to configure RESET as output here,
+  // So we have to configure RESET as output bufferIndex,
   // (reset_target() first sets the correct level)
   reset_target(true);
 
@@ -285,18 +288,18 @@ void commit(uint16_t addr) {
 
 uint16_t current_page() {
   if (param.pagesize == 32) {
-    return here & 0xFFFFFFF0;
+    return bufferIndex & 0xFFFFFFF0;
   }
   if (param.pagesize == 64) {
-    return here & 0xFFFFFFE0;
+    return bufferIndex & 0xFFFFFFE0;
   }
   if (param.pagesize == 128) {
-    return here & 0xFFFFFFC0;
+    return bufferIndex & 0xFFFFFFC0;
   }
   if (param.pagesize == 256) {
-    return here & 0xFFFFFF80;
+    return bufferIndex & 0xFFFFFF80;
   }
-  return here;
+  return bufferIndex;
 }
 
 uint8_t write_flash_pages(uint16_t length) {
@@ -306,13 +309,16 @@ uint8_t write_flash_pages(uint16_t length) {
   uint16_t page = current_page();
 
   while (x < length) {
+
     if (page != current_page()) {
       commit(page);
       page = current_page();
     }
-    flash(LOW, here, buffer[x++]);
-    flash(HIGH, here, buffer[x++]);
-    here++;
+
+    flash(LOW, bufferIndex, buffer[x++]);
+    flash(HIGH, bufferIndex, buffer[x++]);
+
+    bufferIndex++;
   }
 
   commit(page);
@@ -354,8 +360,8 @@ uint8_t write_eeprom_chunk(uint16_t start, uint16_t length) {
 
 uint8_t write_eeprom(uint16_t length) {
 
-  // here is a word address, get the byte address
-  uint16_t start = here * 2;
+  // bufferIndex is a word address, get the byte address
+  uint16_t start = bufferIndex * 2;
   uint16_t remaining = length;
 
   if (length > param.eepromsize) {
@@ -384,7 +390,7 @@ void program_page() {
 
   char memtype = getChar();
 
-  // flash memory @here, (length) bytes
+  // flash memory @bufferIndex, (length) bytes
   if (memtype == 'F') {
     write_flash(length);
     return;
@@ -414,11 +420,14 @@ uint8_t flash_read(uint8_t hilo, uint16_t addr) {
 char flash_read_page(uint16_t length) {
 
   for (uint16_t x = 0; x < length; x += 2) {
-    uint8_t low = flash_read(LOW, here);
+
+    uint8_t low = flash_read(LOW, bufferIndex);
     Serial.print((char)low);
-    uint8_t high = flash_read(HIGH, here);
+
+    uint8_t high = flash_read(HIGH, bufferIndex);
     Serial.print((char)high);
-    here++;
+
+    bufferIndex++;
   }
 
   return STK_OK;
@@ -426,8 +435,8 @@ char flash_read_page(uint16_t length) {
 
 char eeprom_read_page(uint16_t length) {
 
-  // here again we have a word address
-  uint16_t start = here * 2;
+  // bufferIndex again we have a word address
+  uint16_t start = bufferIndex * 2;
 
   for (uint16_t x = 0; x < length; x++) {
     uint16_t addr = start + x;
@@ -537,8 +546,8 @@ void avrisp() {
     break;
 
   case 'U': // set address (word)
-    here = getChar();
-    here += 256 * getChar();
+    bufferIndex = getChar();
+    bufferIndex += 256 * getChar();
     empty_reply();
     break;
 
