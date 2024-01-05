@@ -1,6 +1,9 @@
 // **** CUSTOMIZED VERSION OF arduino-as-isp, ONLY USE FOR THAT HARDWARE ****//
 //
 //  - Reset output polarity inverted for 2N7000 on reset line
+//  - LED pins changed
+//  - Added CD4053B inhibit pin (outputs HI-Z when not programming)
+//  - Added target power enable
 
 #include "SPI.h"
 #include "defines.h"
@@ -12,12 +15,12 @@ void pulse(uint8_t pin, uint8_t times);
 int ISPError = 0;
 bool pgm_mode = false;
 
-unsigned int here; // address for reading and writing, set by 'U' command
-uint8_t buff[256]; // global block storage
+unsigned int here;   // address for reading and writing, set by 'U' command
+uint8_t buffer[256]; // global block storage
 
 // Heartbeat so you can tell the software is running.
-uint8_t hbval = 128;
-int8_t hbdelta = 8;
+uint8_t heartbeatValue = 128;
+int8_t heartbeatDelta = 8;
 
 bool rst_active_high;
 
@@ -27,12 +30,19 @@ void setup() {
 
   pinMode(ENABLE_PGM, OUTPUT);
 
+  digitalWrite(TARGET_PWR, HIGH);
+  pinMode(TARGET_PWR, OUTPUT);
+
+  /*   digitalWrite(TARGET_PWR, LOW);
+    delay(1000);
+    digitalWrite(TARGET_PWR, HIGH); */
+
   pinMode(LED_PMODE, OUTPUT);
   pulse(LED_PMODE, 2);
 
   pinMode(LED_ERR, OUTPUT);
   pulse(LED_ERR, 2);
-  
+
   pinMode(LED_HB, OUTPUT);
   pulse(LED_HB, 2);
 }
@@ -72,17 +82,17 @@ void heartbeat() {
 
   last_time = now;
 
-  if (hbval > 192) {
-    hbdelta = -hbdelta;
+  if (heartbeatValue > 192) {
+    heartbeatDelta = -heartbeatDelta;
   }
 
-  if (hbval < 16) {
-    hbdelta = -hbdelta;
+  if (heartbeatValue < 16) {
+    heartbeatDelta = -heartbeatDelta;
   }
 
-  hbval += hbdelta;
+  heartbeatValue += heartbeatDelta;
 
-  analogWrite(LED_HB, hbval);
+  analogWrite(LED_HB, heartbeatValue);
 }
 
 void reset_target(bool reset) {
@@ -92,7 +102,7 @@ void reset_target(bool reset) {
                    : HIGH);
 }
 
-uint8_t getch() {
+uint8_t getChar() {
   while (!Serial.available())
     ;
   return Serial.read();
@@ -100,7 +110,7 @@ uint8_t getch() {
 
 void fill(int n) {
   for (int x = 0; x < n; x++) {
-    buff[x] = getch();
+    buffer[x] = getChar();
   }
 }
 
@@ -127,7 +137,8 @@ uint8_t spi_transaction(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
 }
 
 void empty_reply() {
-  if (CRC_EOP == getch()) {
+
+  if (CRC_EOP == getChar()) {
     Serial.print((char)STK_INSYNC);
     Serial.print((char)STK_OK);
   } else {
@@ -137,7 +148,7 @@ void empty_reply() {
 }
 
 void breply(uint8_t b) {
-  if (CRC_EOP == getch()) {
+  if (CRC_EOP == getChar()) {
     Serial.print((char)STK_INSYNC);
     Serial.print((char)b);
     Serial.print((char)STK_OK);
@@ -167,25 +178,25 @@ void get_version(uint8_t c) {
 }
 
 void set_parameters() {
-  // call this after reading parameter packet into buff[]
-  param.devicecode = buff[0];
-  param.revision = buff[1];
-  param.progtype = buff[2];
-  param.parmode = buff[3];
-  param.polling = buff[4];
-  param.selftimed = buff[5];
-  param.lockbytes = buff[6];
-  param.fusebytes = buff[7];
-  param.flashpoll = buff[8];
-  // ignore buff[9] (= buff[8])
+  // call this after reading parameter packet into buffer[]
+  param.devicecode = buffer[0];
+  param.revision = buffer[1];
+  param.progtype = buffer[2];
+  param.parmode = buffer[3];
+  param.polling = buffer[4];
+  param.selftimed = buffer[5];
+  param.lockbytes = buffer[6];
+  param.fusebytes = buffer[7];
+  param.flashpoll = buffer[8];
+  // ignore buffer[9] (= buffer[8])
   // following are 16 bits (big endian)
-  param.eeprompoll = beget16(&buff[10]);
-  param.pagesize = beget16(&buff[12]);
-  param.eepromsize = beget16(&buff[14]);
+  param.eeprompoll = beget16(&buffer[10]);
+  param.pagesize = beget16(&buffer[12]);
+  param.eepromsize = beget16(&buffer[14]);
 
   // 32 bits flashsize (big endian)
-  param.flashsize = buff[16] * 0x01000000 + buff[17] * 0x00010000 +
-                    buff[18] * 0x00000100 + buff[19];
+  param.flashsize = buffer[16] * 0x01000000 + buffer[17] * 0x00010000 +
+                    buffer[18] * 0x00000100 + buffer[19];
 
   // AVR devices have active low reset, AT89Sx are active high
   rst_active_high = (param.devicecode >= 0xe0);
@@ -194,6 +205,8 @@ void set_parameters() {
 void start_pmode() {
 
   digitalWrite(ENABLE_PGM, LOW);
+  digitalWrite(TARGET_PWR, LOW);
+
   delayMicroseconds(40); // random number
 
   // Reset target before driving SCK or MOSI
@@ -215,14 +228,14 @@ void start_pmode() {
 
   reset_target(false);
 
-  // Pulse must be minimum 2 target CPU clock cycles so 100 usec is ok for CPU
-  // speeds above 20 KHz
+  // Pulse must be minimum 2 target CPU clock cycles so 100 usec
+  // is ok for CPU speeds above 20 KHz
   delayMicroseconds(100);
 
   reset_target(true);
 
   // Send the enable programming command:
-  delay(50); // datasheet: must be > 20 msec
+  delay(50); // Must be > 20 msec as per datasheet
   spi_transaction(0xAC, 0x53, 0x00, 0x00);
 
   pgm_mode = true;
@@ -243,12 +256,13 @@ void end_pmode() {
   pgm_mode = false;
 
   digitalWrite(ENABLE_PGM, HIGH);
+  digitalWrite(TARGET_PWR, HIGH);
 }
 
 void universal() {
   uint8_t ch;
   fill(4);
-  ch = spi_transaction(buff[0], buff[1], buff[2], buff[3]);
+  ch = spi_transaction(buffer[0], buffer[1], buffer[2], buffer[3]);
   breply(ch);
 }
 
@@ -291,8 +305,8 @@ uint8_t write_flash_pages(int length) {
       commit(page);
       page = current_page();
     }
-    flash(LOW, here, buff[x++]);
-    flash(HIGH, here, buff[x++]);
+    flash(LOW, here, buffer[x++]);
+    flash(HIGH, here, buffer[x++]);
     here++;
   }
 
@@ -303,7 +317,7 @@ uint8_t write_flash_pages(int length) {
 
 void write_flash(int length) {
   fill(length);
-  if (CRC_EOP == getch()) {
+  if (CRC_EOP == getChar()) {
     Serial.print((char)STK_INSYNC);
     Serial.print((char)write_flash_pages(length));
   } else {
@@ -319,7 +333,7 @@ uint8_t write_eeprom_chunk(unsigned int start, unsigned int length) {
   prog_lamp(LOW);
   for (unsigned int x = 0; x < length; x++) {
     unsigned int addr = start + x;
-    spi_transaction(0xC0, (addr >> 8) & 0xFF, addr & 0xFF, buff[x]);
+    spi_transaction(0xC0, (addr >> 8) & 0xFF, addr & 0xFF, buffer[x]);
     delay(45);
   }
   prog_lamp(HIGH);
@@ -345,9 +359,9 @@ uint8_t write_eeprom(unsigned int length) {
 
 void program_page() {
   char result = (char)STK_FAILED;
-  unsigned int length = 256 * getch();
-  length += getch();
-  char memtype = getch();
+  unsigned int length = 256 * getChar();
+  length += getChar();
+  char memtype = getChar();
   // flash memory @here, (length) bytes
   if (memtype == 'F') {
     write_flash(length);
@@ -355,7 +369,7 @@ void program_page() {
   }
   if (memtype == 'E') {
     result = (char)write_eeprom(length);
-    if (CRC_EOP == getch()) {
+    if (CRC_EOP == getChar()) {
       Serial.print((char)STK_INSYNC);
       Serial.print(result);
     } else {
@@ -396,10 +410,10 @@ char eeprom_read_page(int length) {
 
 void read_page() {
   char result = (char)STK_FAILED;
-  int length = 256 * getch();
-  length += getch();
-  char memtype = getch();
-  if (CRC_EOP != getch()) {
+  int length = 256 * getChar();
+  length += getChar();
+  char memtype = getChar();
+  if (CRC_EOP != getChar()) {
     ISPError++;
     Serial.print((char)STK_NOSYNC);
     return;
@@ -415,7 +429,7 @@ void read_page() {
 }
 
 void read_signature() {
-  if (CRC_EOP != getch()) {
+  if (CRC_EOP != getChar()) {
     ISPError++;
     Serial.print((char)STK_NOSYNC);
     return;
@@ -435,14 +449,14 @@ void read_signature() {
 ////////////////////////////////////
 ////////////////////////////////////
 void avrisp() {
-  uint8_t ch = getch();
+  uint8_t ch = getChar();
   switch (ch) {
   case '0': // signon
     ISPError = 0;
     empty_reply();
     break;
   case '1':
-    if (getch() == CRC_EOP) {
+    if (getChar() == CRC_EOP) {
       Serial.print((char)STK_INSYNC);
       Serial.print("AVR ISP");
       Serial.print((char)STK_OK);
@@ -452,7 +466,7 @@ void avrisp() {
     }
     break;
   case 'A':
-    get_version(getch());
+    get_version(getChar());
     break;
   case 'B':
     fill(20);
@@ -470,18 +484,18 @@ void avrisp() {
     empty_reply();
     break;
   case 'U': // set address (word)
-    here = getch();
-    here += 256 * getch();
+    here = getChar();
+    here += 256 * getChar();
     empty_reply();
     break;
 
-  case 0x60: // STK_PROG_FLASH
-    getch(); // low addr
-    getch(); // high addr
+  case 0x60:   // STK_PROG_FLASH
+    getChar(); // low addr
+    getChar(); // high addr
     empty_reply();
     break;
-  case 0x61: // STK_PROG_DATA
-    getch(); // data
+  case 0x61:   // STK_PROG_DATA
+    getChar(); // data
     empty_reply();
     break;
 
@@ -516,7 +530,7 @@ void avrisp() {
   // anything else we will return STK_UNKNOWN
   default:
     ISPError++;
-    if (CRC_EOP == getch()) {
+    if (CRC_EOP == getChar()) {
       Serial.print((char)STK_UNKNOWN);
     } else {
       Serial.print((char)STK_NOSYNC);

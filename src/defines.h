@@ -9,7 +9,7 @@
 #define LED_ERR 2
 #define LED_PMODE 4
 #define ENABLE_PGM 9
-//#define TARGET_PWR 14
+#define TARGET_PWR 8
 
 #define BAUDRATE 19200 // arduino as ISP default
 // #define BAUDRATE	115200
