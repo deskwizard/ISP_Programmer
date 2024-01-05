@@ -29,19 +29,23 @@ void setup() {
 
   pinMode(LED_PMODE, OUTPUT);
   pulse(LED_PMODE, 2);
+
   pinMode(LED_ERR, OUTPUT);
   pulse(LED_ERR, 2);
+  
   pinMode(LED_HB, OUTPUT);
   pulse(LED_HB, 2);
 }
 
 void loop(void) {
+
   // is pgm_mode active?
   if (pgm_mode) {
     digitalWrite(LED_PMODE, HIGH);
   } else {
     digitalWrite(LED_PMODE, LOW);
   }
+
   // is there an error?
   if (ISPError) {
     digitalWrite(LED_ERR, HIGH);
@@ -58,19 +62,26 @@ void loop(void) {
 }
 
 void heartbeat() {
+
   static unsigned long last_time = 0;
   unsigned long now = millis();
+
   if ((now - last_time) < 40) {
     return;
   }
+
   last_time = now;
+
   if (hbval > 192) {
     hbdelta = -hbdelta;
   }
+
   if (hbval < 16) {
     hbdelta = -hbdelta;
   }
+
   hbval += hbdelta;
+
   analogWrite(LED_HB, hbval);
 }
 
@@ -201,26 +212,36 @@ void start_pmode() {
   // Pulse RESET after SCK is low:
   digitalWrite(SCK, LOW);
   delay(20); // discharge SCK, value arbitrarily chosen
+
   reset_target(false);
+
   // Pulse must be minimum 2 target CPU clock cycles so 100 usec is ok for CPU
   // speeds above 20 KHz
   delayMicroseconds(100);
+
   reset_target(true);
 
   // Send the enable programming command:
   delay(50); // datasheet: must be > 20 msec
   spi_transaction(0xAC, 0x53, 0x00, 0x00);
+
   pgm_mode = true;
 }
 
 void end_pmode() {
+
   SPI.end();
+
   // We're about to take the target out of reset so configure SPI pins as input
   pinMode(MOSI, INPUT);
   pinMode(SCK, INPUT);
+
   reset_target(false);
+
   pinMode(RESET, INPUT);
+
   pgm_mode = false;
+
   digitalWrite(ENABLE_PGM, HIGH);
 }
 
