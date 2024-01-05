@@ -1,68 +1,31 @@
-// ***** THIS IS A CUSTOMIZED VERSION OF arduino-as-isp, ONLY USE FOR THAT HARDWARE *****
+// **** CUSTOMIZED VERSION OF arduino-as-isp, ONLY USE FOR THAT HARDWARE ****//
 //
 //  - Reset output polarity inverted for 2N7000 on reset line
 
 #include "SPI.h"
-#include <Arduino.h>
-
-#define RESET 10
-#define LED_HB 9
-#define LED_ERR 8
-#define LED_PMODE 7
-
-#undef SERIAL
+#include "defines.h"
 
 void avrisp();
+void heartbeat();
+void pulse(uint8_t pin, uint8_t times);
 
-#define PROG_FLICKER true
+int ISPError = 0;
+bool pgm_mode = false;
 
-// Configure SPI clock (in Hz).
-// E.g. for an ATtiny @ 128 kHz: the datasheet states that both the high and low
-// SPI clock pulse must be > 2 CPU cycles, so take 3 cycles i.e. divide target
-// f_cpu by 6:
-//     #define SPI_CLOCK            (128000/6)
-//
-// A clock slow enough for an ATtiny85 @ 1 MHz, is a reasonable default:
+unsigned int here; // address for reading and writing, set by 'U' command
+uint8_t buff[256]; // global block storage
 
-#define SPI_CLOCK (1000000 / 6)
+// Heartbeat so you can tell the software is running.
+uint8_t hbval = 128;
+int8_t hbdelta = 8;
 
-// Select hardware or software SPI, depending on SPI clock.
-// Currently only for AVR, for other architectures (Due, Zero,...), hardware SPI
-// is probably too fast anyway.
-
-#if SPI_CLOCK > (F_CPU / 128)
-#define USE_HARDWARE_SPI
-#endif
-
-// Configure which pins to use,
-// Use hardware SPI pins:
-#define PIN_MOSI MOSI
-#define PIN_MISO MISO
-#define PIN_SCK SCK
-
-#define SERIAL Serial
-
-// Configure the baud rate:
-#define BAUDRATE 19200
-// #define BAUDRATE	115200
-// #define BAUDRATE	1000000
-
-#define HWVER 2
-#define SWMAJ 1
-#define SWMIN 18
-
-// STK Definitions
-#define STK_OK 0x10
-#define STK_FAILED 0x11
-#define STK_UNKNOWN 0x12
-#define STK_INSYNC 0x14
-#define STK_NOSYNC 0x15
-#define CRC_EOP 0x20 // ok it is a space...
-
-void pulse(int pin, int times);
+bool rst_active_high;
 
 void setup() {
-  SERIAL.begin(BAUDRATE);
+
+  Serial.begin(BAUDRATE);
+
+  pinMode(ENABLE_PGM, OUTPUT);
 
   pinMode(LED_PMODE, OUTPUT);
   pulse(LED_PMODE, 2);
@@ -72,63 +35,9 @@ void setup() {
   pulse(LED_HB, 2);
 }
 
-int ISPError = 0;
-int pmode = 0;
-// address for reading and writing, set by 'U' command
-unsigned int here;
-uint8_t buff[256]; // global block storage
-
-#define beget16(addr) (*addr * 256 + *(addr + 1))
-typedef struct param {
-  uint8_t devicecode;
-  uint8_t revision;
-  uint8_t progtype;
-  uint8_t parmode;
-  uint8_t polling;
-  uint8_t selftimed;
-  uint8_t lockbytes;
-  uint8_t fusebytes;
-  uint8_t flashpoll;
-  uint16_t eeprompoll;
-  uint16_t pagesize;
-  uint16_t eepromsize;
-  uint32_t flashsize;
-} parameter;
-
-parameter param;
-
-// this provides a heartbeat on pin 9, so you can tell the software is running.
-uint8_t hbval = 128;
-int8_t hbdelta = 8;
-void heartbeat() {
-  static unsigned long last_time = 0;
-  unsigned long now = millis();
-  if ((now - last_time) < 40) {
-    return;
-  }
-  last_time = now;
-  if (hbval > 192) {
-    hbdelta = -hbdelta;
-  }
-  if (hbval < 32) {
-    hbdelta = -hbdelta;
-  }
-  hbval += hbdelta;
-  analogWrite(LED_HB, hbval);
-}
-
-static bool rst_active_high;
-
-void reset_target(bool reset) {
-  digitalWrite(RESET,
-               ((reset && rst_active_high) || (!reset && !rst_active_high))
-                   ? HIGH
-                   : LOW);
-}
-
 void loop(void) {
-  // is pmode active?
-  if (pmode) {
+  // is pgm_mode active?
+  if (pgm_mode) {
     digitalWrite(LED_PMODE, HIGH);
   } else {
     digitalWrite(LED_PMODE, LOW);
@@ -143,15 +52,39 @@ void loop(void) {
   // light the heartbeat LED
   heartbeat();
 
-  if (SERIAL.available()) {
+  if (Serial.available()) {
     avrisp();
   }
 }
 
+void heartbeat() {
+  static unsigned long last_time = 0;
+  unsigned long now = millis();
+  if ((now - last_time) < 40) {
+    return;
+  }
+  last_time = now;
+  if (hbval > 192) {
+    hbdelta = -hbdelta;
+  }
+  if (hbval < 16) {
+    hbdelta = -hbdelta;
+  }
+  hbval += hbdelta;
+  analogWrite(LED_HB, hbval);
+}
+
+void reset_target(bool reset) {
+  digitalWrite(RESET,
+               ((reset && rst_active_high) || (!reset && !rst_active_high))
+                   ? LOW
+                   : HIGH);
+}
+
 uint8_t getch() {
-  while (!SERIAL.available())
+  while (!Serial.available())
     ;
-  return SERIAL.read();
+  return Serial.read();
 }
 
 void fill(int n) {
@@ -160,17 +93,16 @@ void fill(int n) {
   }
 }
 
-#define PTIME 30
-void pulse(int pin, int times) {
+void pulse(uint8_t pin, uint8_t times) {
   do {
     digitalWrite(pin, HIGH);
-    delay(PTIME);
+    delay(LED_PULSE_TIME);
     digitalWrite(pin, LOW);
-    delay(PTIME);
+    delay(LED_PULSE_TIME);
   } while (times--);
 }
 
-void prog_lamp(int state) {
+void prog_lamp(bool state) {
   if (PROG_FLICKER) {
     digitalWrite(LED_PMODE, state);
   }
@@ -185,22 +117,22 @@ uint8_t spi_transaction(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
 
 void empty_reply() {
   if (CRC_EOP == getch()) {
-    SERIAL.print((char)STK_INSYNC);
-    SERIAL.print((char)STK_OK);
+    Serial.print((char)STK_INSYNC);
+    Serial.print((char)STK_OK);
   } else {
     ISPError++;
-    SERIAL.print((char)STK_NOSYNC);
+    Serial.print((char)STK_NOSYNC);
   }
 }
 
 void breply(uint8_t b) {
   if (CRC_EOP == getch()) {
-    SERIAL.print((char)STK_INSYNC);
-    SERIAL.print((char)b);
-    SERIAL.print((char)STK_OK);
+    Serial.print((char)STK_INSYNC);
+    Serial.print((char)b);
+    Serial.print((char)STK_OK);
   } else {
     ISPError++;
-    SERIAL.print((char)STK_NOSYNC);
+    Serial.print((char)STK_NOSYNC);
   }
 }
 
@@ -250,7 +182,10 @@ void set_parameters() {
 
 void start_pmode() {
 
-  // Reset target before driving PIN_SCK or PIN_MOSI
+  digitalWrite(ENABLE_PGM, LOW);
+  delayMicroseconds(40); // random number
+
+  // Reset target before driving SCK or MOSI
 
   // SPI.begin() will configure SS as output, so SPI master mode is selected.
   // We have defined RESET as pin 10, which for many Arduinos is not the SS pin.
@@ -263,9 +198,9 @@ void start_pmode() {
 
   // See AVR datasheets, chapter "SERIAL_PRG Programming Algorithm":
 
-  // Pulse RESET after PIN_SCK is low:
-  digitalWrite(PIN_SCK, LOW);
-  delay(20); // discharge PIN_SCK, value arbitrarily chosen
+  // Pulse RESET after SCK is low:
+  digitalWrite(SCK, LOW);
+  delay(20); // discharge SCK, value arbitrarily chosen
   reset_target(false);
   // Pulse must be minimum 2 target CPU clock cycles so 100 usec is ok for CPU
   // speeds above 20 KHz
@@ -275,22 +210,22 @@ void start_pmode() {
   // Send the enable programming command:
   delay(50); // datasheet: must be > 20 msec
   spi_transaction(0xAC, 0x53, 0x00, 0x00);
-  pmode = 1;
+  pgm_mode = true;
 }
 
 void end_pmode() {
   SPI.end();
   // We're about to take the target out of reset so configure SPI pins as input
-  pinMode(PIN_MOSI, INPUT);
-  pinMode(PIN_SCK, INPUT);
+  pinMode(MOSI, INPUT);
+  pinMode(SCK, INPUT);
   reset_target(false);
   pinMode(RESET, INPUT);
-  pmode = 0;
+  pgm_mode = false;
+  digitalWrite(ENABLE_PGM, HIGH);
 }
 
 void universal() {
   uint8_t ch;
-
   fill(4);
   ch = spi_transaction(buff[0], buff[1], buff[2], buff[3]);
   breply(ch);
@@ -299,13 +234,14 @@ void universal() {
 void flash(uint8_t hilo, unsigned int addr, uint8_t data) {
   spi_transaction(0x40 + 8 * hilo, addr >> 8 & 0xFF, addr & 0xFF, data);
 }
+
 void commit(unsigned int addr) {
   if (PROG_FLICKER) {
     prog_lamp(LOW);
   }
   spi_transaction(0x4C, (addr >> 8) & 0xFF, addr & 0xFF, 0);
   if (PROG_FLICKER) {
-    delay(PTIME);
+    delay(LED_PULSE_TIME);
     prog_lamp(HIGH);
   }
 }
@@ -347,15 +283,13 @@ uint8_t write_flash_pages(int length) {
 void write_flash(int length) {
   fill(length);
   if (CRC_EOP == getch()) {
-    SERIAL.print((char)STK_INSYNC);
-    SERIAL.print((char)write_flash_pages(length));
+    Serial.print((char)STK_INSYNC);
+    Serial.print((char)write_flash_pages(length));
   } else {
     ISPError++;
-    SERIAL.print((char)STK_NOSYNC);
+    Serial.print((char)STK_NOSYNC);
   }
 }
-
-#define EECHUNK (32)
 
 // write (length) bytes, (start) is a byte address
 uint8_t write_eeprom_chunk(unsigned int start, unsigned int length) {
@@ -370,6 +304,7 @@ uint8_t write_eeprom_chunk(unsigned int start, unsigned int length) {
   prog_lamp(HIGH);
   return STK_OK;
 }
+
 uint8_t write_eeprom(unsigned int length) {
   // here is a word address, get the byte address
   unsigned int start = here * 2;
@@ -386,6 +321,7 @@ uint8_t write_eeprom(unsigned int length) {
   write_eeprom_chunk(start, remaining);
   return STK_OK;
 }
+
 void program_page() {
   char result = (char)STK_FAILED;
   unsigned int length = 256 * getch();
@@ -399,15 +335,15 @@ void program_page() {
   if (memtype == 'E') {
     result = (char)write_eeprom(length);
     if (CRC_EOP == getch()) {
-      SERIAL.print((char)STK_INSYNC);
-      SERIAL.print(result);
+      Serial.print((char)STK_INSYNC);
+      Serial.print(result);
     } else {
       ISPError++;
-      SERIAL.print((char)STK_NOSYNC);
+      Serial.print((char)STK_NOSYNC);
     }
     return;
   }
-  SERIAL.print((char)STK_FAILED);
+  Serial.print((char)STK_FAILED);
   return;
 }
 
@@ -418,9 +354,9 @@ uint8_t flash_read(uint8_t hilo, unsigned int addr) {
 char flash_read_page(int length) {
   for (int x = 0; x < length; x += 2) {
     uint8_t low = flash_read(LOW, here);
-    SERIAL.print((char)low);
+    Serial.print((char)low);
     uint8_t high = flash_read(HIGH, here);
-    SERIAL.print((char)high);
+    Serial.print((char)high);
     here++;
   }
   return STK_OK;
@@ -432,7 +368,7 @@ char eeprom_read_page(int length) {
   for (int x = 0; x < length; x++) {
     int addr = start + x;
     uint8_t ee = spi_transaction(0xA0, (addr >> 8) & 0xFF, addr & 0xFF, 0xFF);
-    SERIAL.print((char)ee);
+    Serial.print((char)ee);
   }
   return STK_OK;
 }
@@ -444,33 +380,33 @@ void read_page() {
   char memtype = getch();
   if (CRC_EOP != getch()) {
     ISPError++;
-    SERIAL.print((char)STK_NOSYNC);
+    Serial.print((char)STK_NOSYNC);
     return;
   }
-  SERIAL.print((char)STK_INSYNC);
+  Serial.print((char)STK_INSYNC);
   if (memtype == 'F') {
     result = flash_read_page(length);
   }
   if (memtype == 'E') {
     result = eeprom_read_page(length);
   }
-  SERIAL.print(result);
+  Serial.print(result);
 }
 
 void read_signature() {
   if (CRC_EOP != getch()) {
     ISPError++;
-    SERIAL.print((char)STK_NOSYNC);
+    Serial.print((char)STK_NOSYNC);
     return;
   }
-  SERIAL.print((char)STK_INSYNC);
+  Serial.print((char)STK_INSYNC);
   uint8_t high = spi_transaction(0x30, 0x00, 0x00, 0x00);
-  SERIAL.print((char)high);
+  Serial.print((char)high);
   uint8_t middle = spi_transaction(0x30, 0x00, 0x01, 0x00);
-  SERIAL.print((char)middle);
+  Serial.print((char)middle);
   uint8_t low = spi_transaction(0x30, 0x00, 0x02, 0x00);
-  SERIAL.print((char)low);
-  SERIAL.print((char)STK_OK);
+  Serial.print((char)low);
+  Serial.print((char)STK_OK);
 }
 //////////////////////////////////////////
 //////////////////////////////////////////
@@ -486,12 +422,12 @@ void avrisp() {
     break;
   case '1':
     if (getch() == CRC_EOP) {
-      SERIAL.print((char)STK_INSYNC);
-      SERIAL.print("AVR ISP");
-      SERIAL.print((char)STK_OK);
+      Serial.print((char)STK_INSYNC);
+      Serial.print("AVR ISP");
+      Serial.print((char)STK_OK);
     } else {
       ISPError++;
-      SERIAL.print((char)STK_NOSYNC);
+      Serial.print((char)STK_NOSYNC);
     }
     break;
   case 'A':
@@ -507,7 +443,7 @@ void avrisp() {
     empty_reply();
     break;
   case 'P':
-    if (!pmode) {
+    if (!pgm_mode) {
       start_pmode();
     }
     empty_reply();
@@ -553,16 +489,16 @@ void avrisp() {
   // this is how we can get back in sync
   case CRC_EOP:
     ISPError++;
-    SERIAL.print((char)STK_NOSYNC);
+    Serial.print((char)STK_NOSYNC);
     break;
 
   // anything else we will return STK_UNKNOWN
   default:
     ISPError++;
     if (CRC_EOP == getch()) {
-      SERIAL.print((char)STK_UNKNOWN);
+      Serial.print((char)STK_UNKNOWN);
     } else {
-      SERIAL.print((char)STK_NOSYNC);
+      Serial.print((char)STK_NOSYNC);
     }
   }
 }
