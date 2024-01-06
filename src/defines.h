@@ -11,8 +11,8 @@
 #define ENABLE_PGM 9
 #define TARGET_PWR 8
 
-#define BAUDRATE 19200 // arduino as ISP default
-// #define BAUDRATE	115200
+//#define BAUDRATE 19200 // arduino as ISP default
+#define BAUDRATE	115200 // AVR ISP
 
 #define LED_PULSE_TIME 30
 #define PROG_FLICKER true

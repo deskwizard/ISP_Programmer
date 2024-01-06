@@ -1,9 +1,10 @@
-// **** CUSTOMIZED VERSION OF arduino-as-isp, ONLY USE FOR THAT HARDWARE ****//
+// **** CUSTOMIZED VERSION OF 'arduino-as-isp', ONLY USE FOR THAT HARDWARE ****//
 //
 //  - Reset output polarity inverted for 2N7000 on reset line
 //  - LED pins changed
 //  - Added CD4053B inhibit pin (outputs HI-Z when not programming)
 //  - Added target power enable
+//  - Baudrate changed to 115200 (Use 'AVR ISP' as programmer type)
 
 #include "SPI.h"
 #include "defines.h"
@@ -12,8 +13,8 @@ void avrisp();
 void heartbeat();
 void pulse(uint8_t pin, uint8_t times);
 
-int16_t ISPError = 0;
-bool pgm_mode = false;
+int16_t errorCount = 0;
+bool programming = false;
 
 uint16_t bufferIndex; // Address for reading and writing, set by 'U' command
 uint8_t buffer[256];  // Global buffer
@@ -45,26 +46,26 @@ void setup() {
 
 void loop(void) {
   /*
-    // Is pgm_mode active?
-    if (pgm_mode) {
+    // Is programming active?
+    if (programming) {
       digitalWrite(LED_PMODE, HIGH);
     } else {
       digitalWrite(LED_PMODE, LOW);
     }
 
-    // Is there an error?
-    if (ISPError) {
+    // Is there an errorCount?
+    if (errorCount) {
       digitalWrite(LED_ERR, HIGH);
     } else {
       digitalWrite(LED_ERR, LOW);
     }
    */
 
-  // Is pgm_mode active?
-  digitalWrite(LED_PMODE, pgm_mode);
+  // Is programming active?
+  digitalWrite(LED_PMODE, programming);
 
-  // Is there an error?
-  digitalWrite(LED_ERR, ISPError);
+  // Is there an errorCount?
+  digitalWrite(LED_ERR, errorCount);
 
   // Light the heartbeat LED
   heartbeat();
@@ -146,7 +147,7 @@ void empty_reply() {
     Serial.write(STK_INSYNC);
     Serial.write(STK_OK);
   } else {
-    ISPError++;
+    errorCount++;
     Serial.write(STK_NOSYNC);
   }
 }
@@ -157,7 +158,7 @@ void breply(uint8_t b) {
     Serial.write(b);
     Serial.write(STK_OK);
   } else {
-    ISPError++;
+    errorCount++;
     Serial.write(STK_NOSYNC);
   }
 }
@@ -244,7 +245,7 @@ void start_pmode() {
   delay(50); // Must be > 20 msec as per datasheet
   spi_transaction(0xAC, 0x53, 0x00, 0x00);
 
-  pgm_mode = true;
+  programming = true;
 }
 
 void end_pmode() {
@@ -259,7 +260,7 @@ void end_pmode() {
 
   pinMode(RESET, INPUT);
 
-  pgm_mode = false;
+  programming = false;
 
   digitalWrite(ENABLE_PGM, HIGH);
   digitalWrite(TARGET_PWR, HIGH);
@@ -335,7 +336,7 @@ void write_flash(uint16_t length) {
     Serial.write(STK_INSYNC);
     Serial.write(write_flash_pages(length));
   } else {
-    ISPError++;
+    errorCount++;
     Serial.write(STK_NOSYNC);
   }
 }
@@ -366,7 +367,7 @@ uint8_t write_eeprom(uint16_t length) {
   uint16_t remaining = length;
 
   if (length > param.eepromsize) {
-    ISPError++;
+    errorCount++;
     return STK_FAILED;
   }
 
@@ -405,7 +406,7 @@ void program_page() {
       Serial.write(STK_INSYNC);
       Serial.write(result);
     } else {
-      ISPError++;
+      errorCount++;
       Serial.write(STK_NOSYNC);
     }
 
@@ -461,7 +462,7 @@ void read_page() {
   uint8_t memtype = getChar();
 
   if (CRC_EOP != getChar()) {
-    ISPError++;
+    errorCount++;
     Serial.write(STK_NOSYNC);
     return;
   }
@@ -481,7 +482,7 @@ void read_page() {
 void read_signature() {
 
   if (CRC_EOP != getChar()) {
-    ISPError++;
+    errorCount++;
     Serial.write(STK_NOSYNC);
     return;
   }
@@ -512,7 +513,7 @@ void avrisp() {
   switch (ch) {
 
   case '0': // signon
-    ISPError = 0;
+    errorCount = 0;
     empty_reply();
     break;
 
@@ -522,7 +523,7 @@ void avrisp() {
       Serial.print(STK_PGM_TYPE);
       Serial.write(STK_OK);
     } else {
-      ISPError++;
+      errorCount++;
       Serial.write(STK_NOSYNC);
     }
     break;
@@ -543,7 +544,7 @@ void avrisp() {
     break;
 
   case 'P':
-    if (!pgm_mode) {
+    if (!programming) {
       start_pmode();
     }
     empty_reply();
@@ -579,7 +580,7 @@ void avrisp() {
     break;
 
   case 'Q': // 0x51
-    ISPError = 0;
+    errorCount = 0;
     end_pmode();
     empty_reply();
     break;
@@ -591,13 +592,13 @@ void avrisp() {
   // expecting a command, not CRC_EOP
   // this is how we can get back in sync
   case CRC_EOP:
-    ISPError++;
+    errorCount++;
     Serial.write(STK_NOSYNC);
     break;
 
   // anything else we will return STK_UNKNOWN
   default:
-    ISPError++;
+    errorCount++;
     if (CRC_EOP == getChar()) {
       Serial.write(STK_UNKNOWN);
     } else {
