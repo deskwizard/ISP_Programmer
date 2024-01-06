@@ -28,6 +28,7 @@
 #define STK_INSYNC 0x14
 #define STK_NOSYNC 0x15
 #define CRC_EOP 0x20
+#define STK_PGM_TYPE "AVR ISP"
 
 // Configure SPI clock (in Hz).
 // E.g. for an ATtiny @ 128 kHz: the datasheet states that both the high and low

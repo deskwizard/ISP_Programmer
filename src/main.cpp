@@ -99,10 +99,11 @@ void heartbeat() {
 }
 
 void reset_target(bool reset) {
-  digitalWrite(RESET,
-               ((reset && rst_active_high) || (!reset && !rst_active_high))
-                   ? LOW
-                   : HIGH);
+  if ((reset && rst_active_high) || (!reset && !rst_active_high)) {
+    digitalWrite(RESET, LOW);
+  } else {
+    digitalWrite(RESET, HIGH);
+  }
 }
 
 uint8_t getChar() {
@@ -153,7 +154,7 @@ void empty_reply() {
 void breply(uint8_t b) {
   if (CRC_EOP == getChar()) {
     Serial.write(STK_INSYNC);
-    Serial.print((char)b);
+    Serial.write(b);
     Serial.write(STK_OK);
   } else {
     ISPError++;
@@ -332,7 +333,7 @@ void write_flash(uint16_t length) {
 
   if (CRC_EOP == getChar()) {
     Serial.write(STK_INSYNC);
-    Serial.print((char)write_flash_pages(length));
+    Serial.write(write_flash_pages(length));
   } else {
     ISPError++;
     Serial.write(STK_NOSYNC);
@@ -382,13 +383,13 @@ uint8_t write_eeprom(uint16_t length) {
 
 void program_page() {
 
-  char result = (char)STK_FAILED;
+  uint8_t result = STK_FAILED;
 
   uint16_t length = 256 * getChar();
 
   length += getChar();
 
-  char memtype = getChar();
+  uint8_t memtype = getChar();
 
   // flash memory @bufferIndex, (length) bytes
   if (memtype == 'F') {
@@ -398,11 +399,11 @@ void program_page() {
 
   if (memtype == 'E') {
 
-    result = (char)write_eeprom(length);
+    result = write_eeprom(length);
 
     if (CRC_EOP == getChar()) {
       Serial.write(STK_INSYNC);
-      Serial.print(result);
+      Serial.write(result);
     } else {
       ISPError++;
       Serial.write(STK_NOSYNC);
@@ -411,7 +412,7 @@ void program_page() {
     return;
   }
 
-  Serial.print((char)STK_FAILED);
+  Serial.write(STK_FAILED);
 
   return;
 }
@@ -420,15 +421,15 @@ uint8_t flash_read(uint8_t hilo, uint16_t addr) {
   return spi_transaction(0x20 + hilo * 8, (addr >> 8) & 0xFF, addr & 0xFF, 0);
 }
 
-char flash_read_page(uint16_t length) {
+uint8_t flash_read_page(uint16_t length) {
 
   for (uint16_t x = 0; x < length; x += 2) {
 
     uint8_t low = flash_read(LOW, bufferIndex);
-    Serial.print((char)low);
+    Serial.write(low);
 
     uint8_t high = flash_read(HIGH, bufferIndex);
-    Serial.print((char)high);
+    Serial.write(high);
 
     bufferIndex++;
   }
@@ -436,15 +437,15 @@ char flash_read_page(uint16_t length) {
   return STK_OK;
 }
 
-char eeprom_read_page(uint16_t length) {
+uint8_t eeprom_read_page(uint16_t length) {
 
-  // bufferIndex again we have a word address
+  // bufferIndex again we have a word address (???)
   uint16_t start = bufferIndex * 2;
 
   for (uint16_t x = 0; x < length; x++) {
     uint16_t addr = start + x;
     uint8_t ee = spi_transaction(0xA0, (addr >> 8) & 0xFF, addr & 0xFF, 0xFF);
-    Serial.print((char)ee);
+    Serial.write(ee);
   }
 
   return STK_OK;
@@ -452,12 +453,12 @@ char eeprom_read_page(uint16_t length) {
 
 void read_page() {
 
-  char result = (char)STK_FAILED;
+  uint8_t result = STK_FAILED;
 
   uint16_t length = 256 * getChar();
   length += getChar();
 
-  char memtype = getChar();
+  uint8_t memtype = getChar();
 
   if (CRC_EOP != getChar()) {
     ISPError++;
@@ -474,7 +475,7 @@ void read_page() {
     result = eeprom_read_page(length);
   }
 
-  Serial.print(result);
+  Serial.write(result);
 }
 
 void read_signature() {
@@ -489,15 +490,15 @@ void read_signature() {
 
   uint8_t high = spi_transaction(0x30, 0x00, 0x00, 0x00);
 
-  Serial.print((char)high);
+  Serial.write(high);
 
   uint8_t middle = spi_transaction(0x30, 0x00, 0x01, 0x00);
 
-  Serial.print((char)middle);
+  Serial.write(middle);
 
   uint8_t low = spi_transaction(0x30, 0x00, 0x02, 0x00);
 
-  Serial.print((char)low);
+  Serial.write(low);
 
   Serial.write(STK_OK);
 }
@@ -518,7 +519,7 @@ void avrisp() {
   case '1':
     if (getChar() == CRC_EOP) {
       Serial.write(STK_INSYNC);
-      Serial.print("AVR ISP");
+      Serial.print(STK_PGM_TYPE);
       Serial.write(STK_OK);
     } else {
       ISPError++;
