@@ -14,9 +14,7 @@
 
 #include "SPI.h"
 #include "defines.h"
-
-void avrisp();
-void handleLEDs();
+#include "stk500v1_defs.h"
 
 int16_t errorCount = 0;
 bool programming = false;
@@ -28,7 +26,7 @@ uint8_t buffer[256];  // Global buffer
 uint8_t heartbeatValue = 128;
 int8_t heartbeatDelta = 8;
 
-bool rst_active_high;
+bool rst_active_high = false;
 
 void setup() {
 
@@ -39,20 +37,23 @@ void setup() {
   pinMode(TARGET_PWR, OUTPUT);
   digitalWrite(TARGET_PWR, OFF);
 
-  pinMode(LED_PMODE, OUTPUT);
-  pinMode(LED_ERR, OUTPUT);
+  pinMode(LED_OK, OUTPUT);
+  pinMode(LED_ERROR, OUTPUT);
+  digitalWrite(LED_OK, ON);
+  digitalWrite(LED_ERROR, OFF);
+
   pinMode(LED_HB, OUTPUT);
 }
 
 void loop(void) {
-
-  // Is there an errorCount?
-  if (errorCount) {
-    digitalWrite(LED_ERR, HIGH);
-  } else {
-    digitalWrite(LED_ERR, LOW);
-  }
-
+  /*
+    // Is there an errorCount?
+    if (errorCount) {
+      digitalWrite(LED_ERR, HIGH);
+    } else {
+      digitalWrite(LED_ERR, LOW);
+    }
+   */
   // Handle the the LEDs
   handleLEDs();
 
@@ -72,7 +73,8 @@ void handleLEDs() {
       programming) {
 
     progLedState = !progLedState;
-    digitalWrite(LED_PMODE, progLedState);
+    digitalWrite(LED_OK, !progLedState);
+    digitalWrite(LED_ERROR, !progLedState);
     lastProgLedMillis = currentMillis;
   }
 
@@ -117,38 +119,38 @@ uint8_t spi_transaction(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
 
 void empty_reply() {
 
-  if (CRC_EOP == getChar()) {
-    Serial.write(STK_INSYNC);
-    Serial.write(STK_OK);
+  if (Sync_CRC_EOP == getChar()) {
+    Serial.write(Resp_STK_INSYNC);
+    Serial.write(Resp_STK_OK);
   } else {
     errorCount++;
-    Serial.write(STK_NOSYNC);
+    Serial.write(Resp_STK_NOSYNC);
   }
 }
 
 void breply(uint8_t b) {
-  if (CRC_EOP == getChar()) {
-    Serial.write(STK_INSYNC);
+  if (Sync_CRC_EOP == getChar()) {
+    Serial.write(Resp_STK_INSYNC);
     Serial.write(b);
-    Serial.write(STK_OK);
+    Serial.write(Resp_STK_OK);
   } else {
     errorCount++;
-    Serial.write(STK_NOSYNC);
+    Serial.write(Resp_STK_NOSYNC);
   }
 }
 
 void get_version(uint8_t c) {
   switch (c) {
-  case 0x80:
+  case Parm_STK_HW_VER:
     breply(HWVER);
     break;
-  case 0x81:
+  case Parm_STK_SW_MAJOR:
     breply(SWMAJ);
     break;
-  case 0x82:
+  case Parm_STK_SW_MINOR:
     breply(SWMIN);
     break;
-  case 0x93:
+  case Parm_STK_PROGMODE:
     breply('S'); // serial programmer
     break;
   default:
@@ -238,7 +240,16 @@ void end_pmode() {
 
   digitalWrite(ENABLE_PGM, HIGH);
   digitalWrite(TARGET_PWR, OFF);
-  digitalWrite(LED_PMODE, LOW);
+
+  /////////////////////////////////////////////////////////////////////////////////
+
+  if (errorCount) {
+    digitalWrite(LED_OK, OFF);
+    digitalWrite(LED_ERROR, ON);
+  } else {
+    digitalWrite(LED_OK, ON);
+    digitalWrite(LED_ERROR, OFF);
+  }
 }
 
 void universal() {
@@ -293,19 +304,19 @@ uint8_t write_flash_pages(uint16_t length) {
 
   commit(page);
 
-  return STK_OK;
+  return Resp_STK_OK;
 }
 
 void write_flash(uint16_t length) {
 
   fill(length);
 
-  if (CRC_EOP == getChar()) {
-    Serial.write(STK_INSYNC);
+  if (Sync_CRC_EOP == getChar()) {
+    Serial.write(Resp_STK_INSYNC);
     Serial.write(write_flash_pages(length));
   } else {
     errorCount++;
-    Serial.write(STK_NOSYNC);
+    Serial.write(Resp_STK_NOSYNC);
   }
 }
 
@@ -321,7 +332,7 @@ uint8_t write_eeprom_chunk(uint16_t start, uint16_t length) {
     delay(45);
   }
 
-  return STK_OK;
+  return Resp_STK_OK;
 }
 
 uint8_t write_eeprom(uint16_t length) {
@@ -332,7 +343,7 @@ uint8_t write_eeprom(uint16_t length) {
 
   if (length > param.eepromsize) {
     errorCount++;
-    return STK_FAILED;
+    return Resp_STK_FAILED;
   }
 
   while (remaining > EECHUNK) {
@@ -343,12 +354,12 @@ uint8_t write_eeprom(uint16_t length) {
 
   write_eeprom_chunk(start, remaining);
 
-  return STK_OK;
+  return Resp_STK_OK;
 }
 
 void program_page() {
 
-  uint8_t result = STK_FAILED;
+  uint8_t result = Resp_STK_FAILED;
 
   uint16_t length = 256 * getChar();
 
@@ -366,18 +377,18 @@ void program_page() {
 
     result = write_eeprom(length);
 
-    if (CRC_EOP == getChar()) {
-      Serial.write(STK_INSYNC);
+    if (Sync_CRC_EOP == getChar()) {
+      Serial.write(Resp_STK_INSYNC);
       Serial.write(result);
     } else {
       errorCount++;
-      Serial.write(STK_NOSYNC);
+      Serial.write(Resp_STK_NOSYNC);
     }
 
     return;
   }
 
-  Serial.write(STK_FAILED);
+  Serial.write(Resp_STK_FAILED);
 
   return;
 }
@@ -399,7 +410,7 @@ uint8_t flash_read_page(uint16_t length) {
     bufferIndex++;
   }
 
-  return STK_OK;
+  return Resp_STK_OK;
 }
 
 uint8_t eeprom_read_page(uint16_t length) {
@@ -413,25 +424,25 @@ uint8_t eeprom_read_page(uint16_t length) {
     Serial.write(ee);
   }
 
-  return STK_OK;
+  return Resp_STK_OK;
 }
 
 void read_page() {
 
-  uint8_t result = STK_FAILED;
+  uint8_t result = Resp_STK_FAILED;
 
   uint16_t length = 256 * getChar();
   length += getChar();
 
   uint8_t memtype = getChar();
 
-  if (CRC_EOP != getChar()) {
+  if (Sync_CRC_EOP != getChar()) {
     errorCount++;
-    Serial.write(STK_NOSYNC);
+    Serial.write(Resp_STK_NOSYNC);
     return;
   }
 
-  Serial.write(STK_INSYNC);
+  Serial.write(Resp_STK_INSYNC);
 
   if (memtype == 'F') {
     result = flash_read_page(length);
@@ -445,13 +456,13 @@ void read_page() {
 
 void read_signature() {
 
-  if (CRC_EOP != getChar()) {
+  if (Sync_CRC_EOP != getChar()) {
     errorCount++;
-    Serial.write(STK_NOSYNC);
+    Serial.write(Resp_STK_NOSYNC);
     return;
   }
 
-  Serial.write(STK_INSYNC);
+  Serial.write(Resp_STK_INSYNC);
 
   uint8_t high = spi_transaction(0x30, 0x00, 0x00, 0x00);
   Serial.write(high);
@@ -462,7 +473,7 @@ void read_signature() {
   uint8_t low = spi_transaction(0x30, 0x00, 0x02, 0x00);
   Serial.write(low);
 
-  Serial.write(STK_OK);
+  Serial.write(Resp_STK_OK);
 }
 
 ////////////////////////////////////////////////////////////////////////
@@ -473,97 +484,97 @@ void avrisp() {
 
   switch (ch) {
 
-  case '0': // signon
+  case Cmnd_STK_GET_SYNC:
     errorCount = 0;
     empty_reply();
     break;
 
-  case '1':
-    if (getChar() == CRC_EOP) {
-      Serial.write(STK_INSYNC);
-      Serial.print(STK_PGM_TYPE);
-      Serial.write(STK_OK);
+  case Cmnd_STK_GET_SIGN_ON:
+    if (getChar() == Sync_CRC_EOP) {
+      Serial.write(Resp_STK_INSYNC);
+      Serial.print(Resp_STK_SIGNON_MSG);
+      Serial.write(Resp_STK_OK);
     } else {
       errorCount++;
-      Serial.write(STK_NOSYNC);
+      Serial.write(Resp_STK_NOSYNC);
     }
     break;
 
-  case 'A':
+  case Cmnd_STK_GET_PARAMETER:
     get_version(getChar());
     break;
 
-  case 'B':
+  case Cmnd_STK_SET_DEVICE:
     fill(20);
     set_parameters();
     empty_reply();
     break;
 
-  case 'E': // extended parameters - ignore for now
+  case Cmnd_STK_SET_DEVICE_EXT: // extended parameters - ignore for now
     fill(5);
     empty_reply();
     break;
 
-  case 'P':
+  case Cmnd_STK_ENTER_PROGMODE:
     if (!programming) {
       start_pmode();
     }
     empty_reply();
     break;
 
-  case 'U': // set address (word)
+  case Cmnd_STK_LOAD_ADDRESS:
     bufferIndex = getChar();
     bufferIndex += 256 * getChar();
     empty_reply();
     break;
 
-  case 0x60:   // STK_PROG_FLASH
-    getChar(); // low addr
-    getChar(); // high addr
+  case Cmnd_STK_PROG_FLASH:
+    getChar();              // low addr
+    getChar();              // high addr
     empty_reply();
     break;
 
-  case 0x61:   // STK_PROG_DATA
-    getChar(); // data
+  case Cmnd_STK_PROG_DATA:
+    getChar();             // data...
     empty_reply();
     break;
 
-  case 0x64: // STK_PROG_PAGE
+  case Cmnd_STK_PROG_PAGE:
     program_page();
     break;
 
-  case 0x74: // STK_READ_PAGE 't'
+  case Cmnd_STK_READ_PAGE:
     read_page();
     break;
 
-  case 'V': // 0x56
+  case Cmnd_STK_UNIVERSAL:
     universal();
     break;
 
-  case 'Q': // 0x51
+  case Cmnd_STK_LEAVE_PROGMODE:
     errorCount = 0;
     end_pmode();
     empty_reply();
     break;
 
-  case 0x75: // STK_READ_SIGN 'u'
+  case Cmnd_STK_READ_SIGN:
     read_signature();
     break;
 
-  // expecting a command, not CRC_EOP
+  // expecting a command, not Sync_CRC_EOP
   // this is how we can get back in sync
-  case CRC_EOP:
+  case Sync_CRC_EOP:
     errorCount++;
-    Serial.write(STK_NOSYNC);
+    Serial.write(Resp_STK_NOSYNC);
     break;
 
-  // anything else we will return STK_UNKNOWN
+  // anything else we will return Resp_STK_UNKNOWN
   default:
     errorCount++;
-    if (CRC_EOP == getChar()) {
-      Serial.write(STK_UNKNOWN);
+    if (Sync_CRC_EOP == getChar()) {
+      Serial.write(Resp_STK_UNKNOWN);
     } else {
-      Serial.write(STK_NOSYNC);
+      Serial.write(Resp_STK_NOSYNC);
     }
   }
 }

@@ -3,14 +3,18 @@
 
 #include <Arduino.h>
 
-// For programmer target power state
+void avrisp();
+void handleLEDs();
+
+// For programmer target power state and LEDs
 #define ON  LOW
 #define OFF HIGH
 
 // IO pins
-#define LED_ERR 2
+// Error and OK LEDs are a dual color R/G LED
+#define LED_ERROR 2
 #define LED_HB 3
-#define LED_PMODE 4
+#define LED_OK 4
 #define TARGET_PWR 8
 #define ENABLE_PGM 9
 #define RESET 10
@@ -22,18 +26,7 @@
 #define LED_MIN_PWM 16
 #define LED_MAX_PWM 192
 
-#define HWVER 2
-#define SWMAJ 1
-#define SWMIN 18
-
-// STK Definitions
-#define STK_OK 0x10
-#define STK_FAILED 0x11
-#define STK_UNKNOWN 0x12
-#define STK_INSYNC 0x14
-#define STK_NOSYNC 0x15
-#define CRC_EOP 0x20
-#define STK_PGM_TYPE "AVR ISP"
+//#define STK_PGM_TYPE "AVR ISP"
 
 // Configure SPI clock (in Hz).
 // E.g. for an ATtiny @ 128 kHz: the datasheet states that both the high and low
