@@ -82,6 +82,22 @@ void loop(void) {
   }
 }
 
+/*
+void pulse(uint8_t pin, uint8_t times) {
+  do {
+    digitalWrite(pin, HIGH);
+    delay(LED_PULSE_TIME);
+    digitalWrite(pin, LOW);
+    delay(LED_PULSE_TIME);
+  } while (times--);
+}
+ */
+void prog_lamp(bool state) {
+  if (PROG_FLICKER) {
+    digitalWrite(LED_PMODE, state);
+  }
+}
+
 void heartbeat() {
 
   static uint32_t last_time = 0;
@@ -123,21 +139,6 @@ uint8_t getChar() {
 void fill(uint16_t n) {
   for (uint16_t x = 0; x < n; x++) {
     buffer[x] = getChar();
-  }
-}
-/*
-void pulse(uint8_t pin, uint8_t times) {
-  do {
-    digitalWrite(pin, HIGH);
-    delay(LED_PULSE_TIME);
-    digitalWrite(pin, LOW);
-    delay(LED_PULSE_TIME);
-  } while (times--);
-}
- */
-void prog_lamp(bool state) {
-  if (PROG_FLICKER) {
-    digitalWrite(LED_PMODE, state);
   }
 }
 
@@ -426,9 +427,24 @@ void program_page() {
 }
 
 uint8_t flash_read(uint8_t hilo, uint16_t addr) {
+
+  if (PROG_FLICKER) {
+    prog_lamp(LOW);
+  }
+
   return spi_transaction(0x20 + hilo * 8, (addr >> 8) & 0xFF, addr & 0xFF, 0);
+
+  if (PROG_FLICKER) {
+    delay(LED_PULSE_TIME);
+    prog_lamp(HIGH);
+  }
 }
 
+/*
+uint8_t flash_read(uint8_t hilo, uint16_t addr) {
+  return spi_transaction(0x20 + hilo * 8, (addr >> 8) & 0xFF, addr & 0xFF, 0);
+}
+ */
 uint8_t flash_read_page(uint16_t length) {
 
   for (uint16_t x = 0; x < length; x += 2) {
@@ -497,15 +513,12 @@ void read_signature() {
   Serial.write(STK_INSYNC);
 
   uint8_t high = spi_transaction(0x30, 0x00, 0x00, 0x00);
-
   Serial.write(high);
 
   uint8_t middle = spi_transaction(0x30, 0x00, 0x01, 0x00);
-
   Serial.write(middle);
 
   uint8_t low = spi_transaction(0x30, 0x00, 0x02, 0x00);
-
   Serial.write(low);
 
   Serial.write(STK_OK);
