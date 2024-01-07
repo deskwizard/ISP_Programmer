@@ -1,4 +1,4 @@
-// **** CUSTOM 'arduino-as-isp', ONLY USE WITH THIS HARDWARE ****//
+// **** CUSTOM 'arduino-as-isp', ONLY USE WITH PARTICULAR THIS HARDWARE ****//
 //
 //  - Reset output polarity inverted for 2N7000 on reset line
 //  - LED pins changed
@@ -6,7 +6,7 @@
 //  - Added target power enable
 //  - Baudrate changed to 115200 (Use 'AVR ISP' as programmer type)
 //
-//    MCU fuse read test:
+//    MCU fuse read test (example):
 //    avrdude -v -p atmega328p -c stk500v1 -P /dev/ttyUSB0
 //
 // TODO:
@@ -16,8 +16,7 @@
 #include "defines.h"
 
 void avrisp();
-void heartbeatLED();
-void programmingLED();
+void handleLEDs();
 
 int16_t errorCount = 0;
 bool programming = false;
@@ -46,64 +45,47 @@ void setup() {
 }
 
 void loop(void) {
-  /*
-
-    // Is there an errorCount?
-    if (errorCount) {
-      digitalWrite(LED_ERR, HIGH);
-    } else {
-      digitalWrite(LED_ERR, LOW);
-    }
-
-   */
 
   // Is there an errorCount?
-  digitalWrite(LED_ERR, errorCount);
+  if (errorCount) {
+    digitalWrite(LED_ERR, HIGH);
+  } else {
+    digitalWrite(LED_ERR, LOW);
+  }
 
   // Handle the the LEDs
-  heartbeatLED();
-  programmingLED();
+  handleLEDs();
 
   if (Serial.available()) {
     avrisp();
   }
 }
 
-void programmingLED() {
+void handleLEDs() {
 
   uint32_t currentMillis = millis();
-  static uint32_t previousMillis = 0;
-  static bool ledState;
+  static uint32_t lastHBLedMillis = 0;
+  static uint32_t lastProgLedMillis = 0;
+  static bool progLedState;
 
-  if ((uint32_t)(currentMillis - previousMillis) >= 100 && programming) {
-    ledState = !ledState;
-    digitalWrite(LED_PMODE, ledState);
-    previousMillis = currentMillis;
-  }
-}
+  if ((uint32_t)(currentMillis - lastProgLedMillis) >= LED_PULSE_TIME &&
+      programming) {
 
-void heartbeatLED() {
-
-  static uint32_t last_time = 0;
-  uint32_t now = millis();
-
-  if ((now - last_time) < 40) {
-    return;
+    progLedState = !progLedState;
+    digitalWrite(LED_PMODE, progLedState);
+    lastProgLedMillis = currentMillis;
   }
 
-  last_time = now;
+  if ((uint32_t)(currentMillis - lastHBLedMillis) >= (LED_PULSE_TIME / 2)) {
 
-  if (heartbeatValue > 192) {
-    heartbeatDelta = -heartbeatDelta;
+    if (heartbeatValue > LED_MAX_PWM || heartbeatValue < LED_MIN_PWM) {
+      heartbeatDelta = -heartbeatDelta;
+    }
+
+    heartbeatValue += heartbeatDelta;
+    analogWrite(LED_HB, heartbeatValue);
+    lastHBLedMillis = currentMillis;
   }
-
-  if (heartbeatValue < 16) {
-    heartbeatDelta = -heartbeatDelta;
-  }
-
-  heartbeatValue += heartbeatDelta;
-
-  analogWrite(LED_HB, heartbeatValue);
 }
 
 void reset_target(bool reset) {

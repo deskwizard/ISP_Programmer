@@ -18,8 +18,9 @@
 //#define BAUDRATE 19200 // arduino as ISP default
 #define BAUDRATE	115200 // AVR ISP
 
-#define LED_PULSE_TIME 30
-#define PROG_FLICKER true
+#define LED_PULSE_TIME 100
+#define LED_MIN_PWM 16
+#define LED_MAX_PWM 192
 
 #define HWVER 2
 #define SWMAJ 1
