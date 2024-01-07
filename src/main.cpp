@@ -1,17 +1,24 @@
-// **** CUSTOMIZED VERSION OF 'arduino-as-isp', ONLY USE FOR THAT HARDWARE ****//
+// **** CUSTOM 'arduino-as-isp', ONLY USE WITH THIS HARDWARE ****//
 //
 //  - Reset output polarity inverted for 2N7000 on reset line
 //  - LED pins changed
 //  - Added CD4053B inhibit pin (outputs HI-Z when not programming)
 //  - Added target power enable
 //  - Baudrate changed to 115200 (Use 'AVR ISP' as programmer type)
+//
+//    MCU fuse read test:
+//    avrdude -v -p atmega328p -c stk500v1 -P /dev/ttyUSB0
+//
+// TODO:
+//    - Programming LED flashes when writing, but not not reading, it annoys me.
+//    - The error LED or it's code is dodgy AF, not sure what's happening there.
 
 #include "SPI.h"
 #include "defines.h"
 
 void avrisp();
 void heartbeat();
-void pulse(uint8_t pin, uint8_t times);
+// void pulse(uint8_t pin, uint8_t times);
 
 int16_t errorCount = 0;
 bool programming = false;
@@ -31,17 +38,17 @@ void setup() {
 
   pinMode(ENABLE_PGM, OUTPUT);
 
-  digitalWrite(TARGET_PWR, HIGH);
   pinMode(TARGET_PWR, OUTPUT);
+  digitalWrite(TARGET_PWR, OFF);
 
   pinMode(LED_PMODE, OUTPUT);
-  pulse(LED_PMODE, 2);
+  // pulse(LED_PMODE, 2);
 
   pinMode(LED_ERR, OUTPUT);
-  pulse(LED_ERR, 2);
+  // pulse(LED_ERR, 2);
 
   pinMode(LED_HB, OUTPUT);
-  pulse(LED_HB, 2);
+  // pulse(LED_HB, 2);
 }
 
 void loop(void) {
@@ -118,7 +125,7 @@ void fill(uint16_t n) {
     buffer[x] = getChar();
   }
 }
-
+/*
 void pulse(uint8_t pin, uint8_t times) {
   do {
     digitalWrite(pin, HIGH);
@@ -127,7 +134,7 @@ void pulse(uint8_t pin, uint8_t times) {
     delay(LED_PULSE_TIME);
   } while (times--);
 }
-
+ */
 void prog_lamp(bool state) {
   if (PROG_FLICKER) {
     digitalWrite(LED_PMODE, state);
@@ -210,7 +217,7 @@ void set_parameters() {
 void start_pmode() {
 
   digitalWrite(ENABLE_PGM, LOW);
-  digitalWrite(TARGET_PWR, LOW);
+  digitalWrite(TARGET_PWR, ON);
 
   delayMicroseconds(40); // random number
 
@@ -263,7 +270,7 @@ void end_pmode() {
   programming = false;
 
   digitalWrite(ENABLE_PGM, HIGH);
-  digitalWrite(TARGET_PWR, HIGH);
+  digitalWrite(TARGET_PWR, OFF);
 }
 
 void universal() {

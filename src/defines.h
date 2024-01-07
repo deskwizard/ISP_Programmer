@@ -3,13 +3,17 @@
 
 #include <Arduino.h>
 
+// For programmer target power state
+#define ON  LOW
+#define OFF HIGH
+
 // IO pins
-#define RESET 10
-#define LED_HB 3
 #define LED_ERR 2
+#define LED_HB 3
 #define LED_PMODE 4
-#define ENABLE_PGM 9
 #define TARGET_PWR 8
+#define ENABLE_PGM 9
+#define RESET 10
 
 //#define BAUDRATE 19200 // arduino as ISP default
 #define BAUDRATE	115200 // AVR ISP
