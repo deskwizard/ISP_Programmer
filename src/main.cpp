@@ -10,15 +10,14 @@
 //    avrdude -v -p atmega328p -c stk500v1 -P /dev/ttyUSB0
 //
 // TODO:
-//    - Programming LED flashes when writing, but not not reading, it annoys me.
 //    - The error LED or it's code is dodgy AF, not sure what's happening there.
 
 #include "SPI.h"
 #include "defines.h"
 
 void avrisp();
-void heartbeat();
-// void pulse(uint8_t pin, uint8_t times);
+void heartbeatLED();
+void programmingLED();
 
 int16_t errorCount = 0;
 bool programming = false;
@@ -42,23 +41,12 @@ void setup() {
   digitalWrite(TARGET_PWR, OFF);
 
   pinMode(LED_PMODE, OUTPUT);
-  // pulse(LED_PMODE, 2);
-
   pinMode(LED_ERR, OUTPUT);
-  // pulse(LED_ERR, 2);
-
   pinMode(LED_HB, OUTPUT);
-  // pulse(LED_HB, 2);
 }
 
 void loop(void) {
   /*
-    // Is programming active?
-    if (programming) {
-      digitalWrite(LED_PMODE, HIGH);
-    } else {
-      digitalWrite(LED_PMODE, LOW);
-    }
 
     // Is there an errorCount?
     if (errorCount) {
@@ -66,39 +54,35 @@ void loop(void) {
     } else {
       digitalWrite(LED_ERR, LOW);
     }
-   */
 
-  // Is programming active?
-  digitalWrite(LED_PMODE, programming);
+   */
 
   // Is there an errorCount?
   digitalWrite(LED_ERR, errorCount);
 
-  // Light the heartbeat LED
-  heartbeat();
+  // Handle the the LEDs
+  heartbeatLED();
+  programmingLED();
 
   if (Serial.available()) {
     avrisp();
   }
 }
 
-/*
-void pulse(uint8_t pin, uint8_t times) {
-  do {
-    digitalWrite(pin, HIGH);
-    delay(LED_PULSE_TIME);
-    digitalWrite(pin, LOW);
-    delay(LED_PULSE_TIME);
-  } while (times--);
-}
- */
-void prog_lamp(bool state) {
-  if (PROG_FLICKER) {
-    digitalWrite(LED_PMODE, state);
+void programmingLED() {
+
+  uint32_t currentMillis = millis();
+  static uint32_t previousMillis = 0;
+  static bool ledState;
+
+  if ((uint32_t)(currentMillis - previousMillis) >= 100 && programming) {
+    ledState = !ledState;
+    digitalWrite(LED_PMODE, ledState);
+    previousMillis = currentMillis;
   }
 }
 
-void heartbeat() {
+void heartbeatLED() {
 
   static uint32_t last_time = 0;
   uint32_t now = millis();
@@ -220,7 +204,7 @@ void start_pmode() {
   digitalWrite(ENABLE_PGM, LOW);
   digitalWrite(TARGET_PWR, ON);
 
-  delayMicroseconds(40); // random number
+  delay(20); // random number
 
   // Reset target before driving SCK or MOSI
 
@@ -272,6 +256,7 @@ void end_pmode() {
 
   digitalWrite(ENABLE_PGM, HIGH);
   digitalWrite(TARGET_PWR, OFF);
+  digitalWrite(LED_PMODE, LOW);
 }
 
 void universal() {
@@ -286,14 +271,7 @@ void flash(uint8_t hilo, uint16_t addr, uint8_t data) {
 }
 
 void commit(uint16_t addr) {
-  if (PROG_FLICKER) {
-    prog_lamp(LOW);
-  }
   spi_transaction(0x4C, (addr >> 8) & 0xFF, addr & 0xFF, 0);
-  if (PROG_FLICKER) {
-    delay(LED_PULSE_TIME);
-    prog_lamp(HIGH);
-  }
 }
 
 uint16_t current_page() {
@@ -349,21 +327,17 @@ void write_flash(uint16_t length) {
   }
 }
 
-// write (length) bytes, (start) is a byte address
+// Write (length) bytes, (start) is a byte address
 uint8_t write_eeprom_chunk(uint16_t start, uint16_t length) {
 
-  // this writes byte-by-byte, page writing may be faster (4 bytes at a time)
+  // This writes byte-by-byte, page writing may be faster (4 bytes at a time)
   fill(length);
-
-  prog_lamp(LOW);
 
   for (uint16_t x = 0; x < length; x++) {
     uint16_t addr = start + x;
     spi_transaction(0xC0, (addr >> 8) & 0xFF, addr & 0xFF, buffer[x]);
     delay(45);
   }
-
-  prog_lamp(HIGH);
 
   return STK_OK;
 }
@@ -427,24 +401,9 @@ void program_page() {
 }
 
 uint8_t flash_read(uint8_t hilo, uint16_t addr) {
-
-  if (PROG_FLICKER) {
-    prog_lamp(LOW);
-  }
-
-  return spi_transaction(0x20 + hilo * 8, (addr >> 8) & 0xFF, addr & 0xFF, 0);
-
-  if (PROG_FLICKER) {
-    delay(LED_PULSE_TIME);
-    prog_lamp(HIGH);
-  }
-}
-
-/*
-uint8_t flash_read(uint8_t hilo, uint16_t addr) {
   return spi_transaction(0x20 + hilo * 8, (addr >> 8) & 0xFF, addr & 0xFF, 0);
 }
- */
+
 uint8_t flash_read_page(uint16_t length) {
 
   for (uint16_t x = 0; x < length; x += 2) {
