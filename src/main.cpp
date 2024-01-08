@@ -19,7 +19,7 @@
 int16_t errorCount = 0;
 bool programming = false;
 
-uint16_t bufferIndex; // Address for reading and writing, set by 'U' command
+uint16_t bufferIndex; // Address for reading and writing
 uint8_t buffer[256];  // Global buffer
 
 // Heartbeat so you can tell the software is running.
@@ -117,7 +117,7 @@ uint8_t spi_transaction(uint8_t a, uint8_t b, uint8_t c, uint8_t d) {
   return SPI.transfer(d);
 }
 
-void empty_reply() {
+void replyEmpty() {
 
   if (Sync_CRC_EOP == getChar()) {
     Serial.write(Resp_STK_INSYNC);
@@ -128,7 +128,7 @@ void empty_reply() {
   }
 }
 
-void breply(uint8_t b) {
+void reply(uint8_t b) {
   if (Sync_CRC_EOP == getChar()) {
     Serial.write(Resp_STK_INSYNC);
     Serial.write(b);
@@ -139,22 +139,25 @@ void breply(uint8_t b) {
   }
 }
 
-void get_version(uint8_t c) {
+void getParameters(uint8_t c) {
   switch (c) {
   case Parm_STK_HW_VER:
-    breply(HWVER);
+    reply(HWVER);
     break;
   case Parm_STK_SW_MAJOR:
-    breply(SWMAJ);
+    reply(SWMAJ);
     break;
   case Parm_STK_SW_MINOR:
-    breply(SWMIN);
+    reply(SWMIN);
     break;
   case Parm_STK_PROGMODE:
-    breply('S'); // serial programmer
+    reply('S'); // serial programmer
+    break;
+  case Parm_STK_VTARGET:
+    reply(31);
     break;
   default:
-    breply(0);
+    reply(0);
   }
 }
 
@@ -194,7 +197,7 @@ void start_pmode() {
 
   // SPI.begin() will configure SS as output, so SPI master mode is selected.
   // We have defined RESET as pin 10, which for many Arduinos is not the SS pin.
-  // So we have to configure RESET as output bufferIndex,
+  // So we have to configure RESET as output
   // (reset_target() first sets the correct level)
   reset_target(true);
 
@@ -256,7 +259,7 @@ void universal() {
   uint8_t ch;
   fill(4);
   ch = spi_transaction(buffer[0], buffer[1], buffer[2], buffer[3]);
-  breply(ch);
+  reply(ch);
 }
 
 void flash(uint8_t hilo, uint16_t addr, uint8_t data) {
@@ -415,7 +418,7 @@ uint8_t flash_read_page(uint16_t length) {
 
 uint8_t eeprom_read_page(uint16_t length) {
 
-  // bufferIndex again we have a word address (???)
+  // bufferIndex again we have a word address (tf...???)
   uint16_t start = bufferIndex * 2;
 
   for (uint16_t x = 0; x < length; x++) {
@@ -486,7 +489,7 @@ void avrisp() {
 
   case Cmnd_STK_GET_SYNC:
     errorCount = 0;
-    empty_reply();
+    replyEmpty();
     break;
 
   case Cmnd_STK_GET_SIGN_ON:
@@ -501,42 +504,42 @@ void avrisp() {
     break;
 
   case Cmnd_STK_GET_PARAMETER:
-    get_version(getChar());
+    getParameters(getChar());
     break;
 
   case Cmnd_STK_SET_DEVICE:
     fill(20);
     set_parameters();
-    empty_reply();
+    replyEmpty();
     break;
 
   case Cmnd_STK_SET_DEVICE_EXT: // extended parameters - ignore for now
     fill(5);
-    empty_reply();
+    replyEmpty();
     break;
 
   case Cmnd_STK_ENTER_PROGMODE:
     if (!programming) {
       start_pmode();
     }
-    empty_reply();
+    replyEmpty();
     break;
 
   case Cmnd_STK_LOAD_ADDRESS:
     bufferIndex = getChar();
     bufferIndex += 256 * getChar();
-    empty_reply();
+    replyEmpty();
     break;
 
   case Cmnd_STK_PROG_FLASH:
-    getChar();              // low addr
-    getChar();              // high addr
-    empty_reply();
+    getChar(); // low addr
+    getChar(); // high addr
+    replyEmpty();
     break;
 
   case Cmnd_STK_PROG_DATA:
-    getChar();             // data...
-    empty_reply();
+    getChar(); // data...
+    replyEmpty();
     break;
 
   case Cmnd_STK_PROG_PAGE:
@@ -554,7 +557,7 @@ void avrisp() {
   case Cmnd_STK_LEAVE_PROGMODE:
     errorCount = 0;
     end_pmode();
-    empty_reply();
+    replyEmpty();
     break;
 
   case Cmnd_STK_READ_SIGN:
