@@ -5,6 +5,7 @@
 //  - Added CD4053B inhibit pin (outputs HI-Z when not programming)
 //  - Added target power enable
 //  - Baudrate changed to 115200 (Use 'AVR ISP' as programmer type)
+//  - Removed reliance on arduino delay functions
 //
 //    MCU fuse read test (example):
 //    avrdude -v -p atmega328p -c stk500v1 -P /dev/ttyUSB0
@@ -15,6 +16,10 @@
 #include "SPI.h"
 #include "defines.h"
 #include "stk500v1_defs.h"
+#include <SoftwareSerial.h>
+#include <util/delay.h>
+
+SoftwareSerial serialDebug(5, 6); // RX, TX
 
 int16_t errorCount = 0;
 bool programming = false;
@@ -28,9 +33,20 @@ int8_t heartbeatDelta = 8;
 
 bool rst_active_high = false;
 
+// const int numReadings = 10;
+int readings[VREAD_COUNT] = {0}; // the readings from the analog input
+int readIndex = 0;               // the index of the current reading
+int total = 0;                   // the running total
+int average = 0;                 // the average
+int inputPin = A5;
+
 void setup() {
 
   Serial.begin(BAUDRATE);
+  serialDebug.begin(38400);
+  serialDebug.println("Hellorld?");
+
+  analogReference(INTERNAL);
 
   pinMode(ENABLE_PGM, OUTPUT);
 
@@ -54,11 +70,38 @@ void loop(void) {
       digitalWrite(LED_ERR, LOW);
     }
    */
+
+  handleVoltageRead();
+
   // Handle the the LEDs
   handleLEDs();
 
   if (Serial.available()) {
     avrisp();
+  }
+}
+
+void handleVoltageRead() {
+
+  uint32_t currentMillis = millis();
+  static uint32_t lastVoldReadMillis = 0;
+
+  if ((uint32_t)(currentMillis - lastVoldReadMillis) >= VREAD_RATE) {
+
+    total = total - readings[readIndex];
+    readings[readIndex] = analogRead(VTARGET_PIN);
+    total = total + readings[readIndex];
+    readIndex = readIndex + 1;
+
+    if (readIndex >= VREAD_COUNT) {
+      readIndex = 0;
+    }
+
+    average = total / VREAD_COUNT;
+
+    // serialDebug.println((average * 1.1 / 1023.0));
+
+    lastVoldReadMillis = currentMillis;
   }
 }
 
@@ -140,6 +183,9 @@ void reply(uint8_t b) {
 }
 
 void getParameters(uint8_t c) {
+
+  float volt;
+
   switch (c) {
   case Parm_STK_HW_VER:
     reply(HWVER);
@@ -154,14 +200,19 @@ void getParameters(uint8_t c) {
     reply('S'); // serial programmer
     break;
   case Parm_STK_VTARGET:
-    reply(31);
+    volt = (((average * 1.1 / 1023.0)) * 100.0) + 0.5;
+    reply(uint8_t(volt));
     break;
   default:
+    // 85 86 87 89 98
+    //serialDebug.print("g: ");
+    //serialDebug.println(c, HEX);
     reply(0);
   }
 }
 
-void set_parameters() {
+void setParameters() {
+  serialDebug.println("S");
   // call this after reading parameter packet into buffer[]
   param.devicecode = buffer[0];
   param.revision = buffer[1];
@@ -191,7 +242,7 @@ void start_pmode() {
   digitalWrite(ENABLE_PGM, LOW);
   digitalWrite(TARGET_PWR, ON);
 
-  delay(20); // random number
+  _delay_ms(20); // random number
 
   // Reset target before driving SCK or MOSI
 
@@ -210,18 +261,18 @@ void start_pmode() {
 
   // Pulse RESET after SCK is low:
   digitalWrite(SCK, LOW);
-  delay(20); // discharge SCK, value arbitrarily chosen
+  _delay_ms(20); // discharge SCK, value arbitrarily chosen
 
   reset_target(false);
 
   // Pulse must be minimum 2 target CPU clock cycles so 100 usec
   // is ok for CPU speeds above 20 KHz
-  delayMicroseconds(100);
+  _delay_us(100);
 
   reset_target(true);
 
   // Send the enable programming command:
-  delay(50); // Must be > 20 msec as per datasheet
+  _delay_ms(50); // Must be > 20 msec as per datasheet
   spi_transaction(0xAC, 0x53, 0x00, 0x00);
 
   programming = true;
@@ -332,7 +383,7 @@ uint8_t write_eeprom_chunk(uint16_t start, uint16_t length) {
   for (uint16_t x = 0; x < length; x++) {
     uint16_t addr = start + x;
     spi_transaction(0xC0, (addr >> 8) & 0xFF, addr & 0xFF, buffer[x]);
-    delay(45);
+    _delay_ms(45);
   }
 
   return Resp_STK_OK;
@@ -509,7 +560,7 @@ void avrisp() {
 
   case Cmnd_STK_SET_DEVICE:
     fill(20);
-    set_parameters();
+    setParameters();
     replyEmpty();
     break;
 
@@ -574,10 +625,14 @@ void avrisp() {
   // anything else we will return Resp_STK_UNKNOWN
   default:
     errorCount++;
-    if (Sync_CRC_EOP == getChar()) {
+    uint8_t temp = getChar();
+
+    if (temp == Sync_CRC_EOP) {
       Serial.write(Resp_STK_UNKNOWN);
     } else {
       Serial.write(Resp_STK_NOSYNC);
     }
+    serialDebug.print("q");
+    serialDebug.println(temp, HEX);
   }
 }

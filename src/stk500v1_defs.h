@@ -25,13 +25,13 @@
 //*
 //* https://github.com/dhylands/projects/blob/master/host/boothost/stk500-command.h
 //*
-
+//*
 // *****************[ STK Message constants ]***************************
 
-#define Resp_STK_SIGNON_MSG "AVR ISP" // Sign on string for Cmnd_STK_GET_SIGN_ON
-#define HWVER 69
-#define SWMAJ 4
-#define SWMIN 20
+#define Resp_STK_SIGNON_MSG "AVR STK" // Sign on string for Cmnd_STK_GET_SIGN_ON
+#define HWVER 44
+#define SWMAJ 57
+#define SWMIN 21
 
 // *****************[ STK Response constants ]***************************
 
@@ -106,6 +106,7 @@
 #define Parm_STK_PARAMODE 0x94  // - TRUE or FALSE
 #define Parm_STK_POLLING 0x95   // - TRUE or FALSE
 #define Parm_STK_SELFTIMED 0x96 // - TRUE or FALSE
+#define Param_STK_TOPCARD_DETECT 0x98 // - R, Range {0..3} (See AVR061, 3 = No topcard detected)
 
 // *****************[ STK status bit definitions ]***************************
 

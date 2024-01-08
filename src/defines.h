@@ -3,12 +3,18 @@
 
 #include <Arduino.h>
 
-void avrisp();
+
+void handleVoltageRead();
 void handleLEDs();
+void avrisp();
 
 // For programmer target power state and LEDs
 #define ON  LOW
 #define OFF HIGH
+
+#define VTARGET_PIN A5
+#define VREAD_COUNT 10 // Number of readings to take
+#define VREAD_RATE 10 // In ms
 
 // IO pins
 // Error and OK LEDs are a dual color R/G LED
@@ -25,8 +31,6 @@ void handleLEDs();
 #define LED_PULSE_TIME 100
 #define LED_MIN_PWM 16
 #define LED_MAX_PWM 192
-
-//#define STK_PGM_TYPE "AVR ISP"
 
 // Configure SPI clock (in Hz).
 // E.g. for an ATtiny @ 128 kHz: the datasheet states that both the high and low
